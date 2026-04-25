@@ -1,0 +1,33 @@
+{
+  "name": "esanchit-backend",
+  "version": "1.0.0",
+  "description": "Backend service for email table extraction and Zoho Creator integration",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "test:email": "node scripts/test-email-notification.js"
+  },
+  "keywords": [
+    "gmail",
+    "email",
+    "table-parser",
+    "zoho-creator"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "googleapis": "^128.0.0",
+    "imapflow": "^1.2.0",
+    "mailparser": "^3.9.1",
+    "node-html-parser": "^6.1.12",
+    "nodemailer": "^7.0.11"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
