@@ -123,32 +123,75 @@ class EmailProcessor {
             }
         }
 
+        const isDrnRow = (row) =>
+            row.length >= 1 &&
+            typeof row[0] === 'string' &&
+            /drn/i.test(row[0]) &&
+            row[0].includes(':');
+
+        const isHeaderRow = (row) => {
+            const normalized = row.map(cell => String(cell || '').trim().toLowerCase());
+            return (
+                normalized.includes('document name') &&
+                normalized.includes('irn') &&
+                normalized.includes('document type')
+            );
+        };
+
+        const isHeaderlessDocumentRow = (row) => {
+            if (row.length < 3) return false;
+
+            const [name, irn, type] = row.map(cell => String(cell || '').trim());
+            if (!name || !irn || !type) return false;
+
+            // Newer eSanchit emails omit the header row and send document rows directly.
+            // Those rows consistently contain a filename, a numeric IRN/document reference,
+            // and a document type/HSN-like descriptor.
+            const looksLikeFilename = /\.[A-Za-z0-9]{2,5}$/.test(name);
+            const looksLikeReference = /^\d{10,}$/.test(irn) || /^IRN/i.test(irn);
+
+            return looksLikeFilename && looksLikeReference;
+        };
+
+        const addDocument = (name, irn, type) => {
+            documents.push({
+                name: name || '',
+                irn: irn || '',
+                type: type || ''
+            });
+        };
+
         // Process the raw rows
         for (const row of rawRows) {
             // Case 1: DRN Row (Metadata) - extract DRN number
-            if (row.length >= 1 && row[0].includes('DRN') && row[0].includes(':')) {
+            if (isDrnRow(row)) {
                 const parts = row[0].split(':');
                 if (parts.length >= 2) {
                     drnNo = parts.slice(1).join(':').trim();
                 }
             }
             // Case 2: Header Row - identify column positions
-            else if (row.includes('Document name')) {
+            else if (isHeaderRow(row)) {
                 currentHeaders = row;
             }
             // Case 3: Data Row - extract document info
             else if (currentHeaders && row.length === currentHeaders.length) {
-                const nameIdx = currentHeaders.indexOf('Document name');
-                const irnIdx = currentHeaders.indexOf('IRN');
-                const typeIdx = currentHeaders.indexOf('Document Type');
+                const normalizedHeaders = currentHeaders.map(header => String(header || '').trim().toLowerCase());
+                const nameIdx = normalizedHeaders.indexOf('document name');
+                const irnIdx = normalizedHeaders.indexOf('irn');
+                const typeIdx = normalizedHeaders.indexOf('document type');
 
                 if (nameIdx !== -1) {
-                    documents.push({
-                        name: row[nameIdx] || '',
-                        irn: irnIdx !== -1 ? row[irnIdx] || '' : '',
-                        type: typeIdx !== -1 ? row[typeIdx] || '' : ''
-                    });
+                    addDocument(
+                        row[nameIdx] || '',
+                        irnIdx !== -1 ? row[irnIdx] || '' : '',
+                        typeIdx !== -1 ? row[typeIdx] || '' : ''
+                    );
                 }
+            }
+            // Case 4: Headerless row format used by current emails
+            else if (isHeaderlessDocumentRow(row)) {
+                addDocument(row[0], row[1], row[2]);
             }
         }
 

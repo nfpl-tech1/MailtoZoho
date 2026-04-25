@@ -33,6 +33,81 @@ const getZohoService = () => {
     return zohoService;
 };
 
+const PENDING_RECORDS_KEY = 'IRN_DRN_PENDING_RECORDS';
+const MAX_PENDING_RECORDS = 500;
+
+const getRecordKey = (record) => {
+    if (record.DRN_no) return `drn:${record.DRN_no}`;
+
+    const documentsKey = (record.documents || [])
+        .map(doc => `${doc.name || ''}|${doc.irn || ''}|${doc.type || ''}`)
+        .join(';');
+
+    return `fallback:${record.Job_No || 'no-job'}:${documentsKey}`;
+};
+
+const normalizePendingRecord = (record, reason = null) => {
+    const now = new Date().toISOString();
+
+    return {
+        Job_No: record.Job_No || null,
+        DRN_no: record.DRN_no || null,
+        documents: Array.isArray(record.documents) ? record.documents : [],
+        pendingReason: reason || record.pendingReason || null,
+        pendingSince: record.pendingSince || now,
+        lastSeenAt: now,
+        attempts: Number(record.attempts || 0)
+    };
+};
+
+const loadPendingRecords = (configService) => {
+    const rawValue = configService.get(PENDING_RECORDS_KEY, '[]');
+
+    try {
+        const records = JSON.parse(rawValue);
+        return Array.isArray(records)
+            ? records.filter(record => record && Array.isArray(record.documents))
+            : [];
+    } catch (error) {
+        console.warn(`Could not parse ${PENDING_RECORDS_KEY}; starting with empty queue: ${error.message}`);
+        return [];
+    }
+};
+
+const savePendingRecords = async (configService, pendingRecords) => {
+    const recordsToSave = pendingRecords
+        .slice(-MAX_PENDING_RECORDS)
+        .map(record => normalizePendingRecord(record, record.pendingReason));
+
+    if (!configService.isStorageAvailable()) {
+        console.warn('Supabase not configured; pending IRN-DRN records cannot persist between runs');
+        return false;
+    }
+
+    return configService.set(PENDING_RECORDS_KEY, JSON.stringify(recordsToSave));
+};
+
+const mergePendingWithCurrent = (pendingRecords, currentRecords) => {
+    const merged = new Map();
+
+    for (const record of pendingRecords) {
+        merged.set(getRecordKey(record), normalizePendingRecord(record, record.pendingReason));
+    }
+
+    for (const record of currentRecords) {
+        const key = getRecordKey(record);
+        const previous = merged.get(key);
+
+        merged.set(key, {
+            ...normalizePendingRecord(record, previous?.pendingReason),
+            pendingSince: previous?.pendingSince || new Date().toISOString(),
+            attempts: previous?.attempts || 0
+        });
+    }
+
+    return Array.from(merged.values());
+};
+
 /**
  * Push parsed results to Zoho Creator
  * OPTIMIZED: Uses batch record creation (API v2.1) - 1 API call instead of N
@@ -60,6 +135,7 @@ const pushToZoho = async (parsedResults, zoho, formLinkName) => {
     // Step 2: Prepare all records for batch creation
     const recordsToCreate = [];
     const recordMeta = []; // Track metadata for result mapping
+    const pendingRecords = [];
 
     for (const record of parsedResults) {
         let jobRecordId = null;
@@ -76,6 +152,18 @@ const pushToZoho = async (parsedResults, zoho, formLinkName) => {
             }
         }
 
+        if (record.Job_No && !jobRecordId) {
+            console.log(`   Holding DRN ${record.DRN_no || '(no DRN)'}: Job_No ${record.Job_No} not found in Zoho`);
+            pendingRecords.push(normalizePendingRecord(record, 'job_lookup_failed'));
+            continue;
+        }
+
+        if (!record.documents || record.documents.length === 0) {
+            console.log(`   Holding DRN ${record.DRN_no || '(no DRN)'}: no documents parsed`);
+            pendingRecords.push(normalizePendingRecord(record, 'no_documents'));
+            continue;
+        }
+
         // Transform to Zoho record format
         const zohoData = {
             DRN_no: record.DRN_no,
@@ -86,7 +174,6 @@ const pushToZoho = async (parsedResults, zoho, formLinkName) => {
             }))
         };
 
-        // Only include Job_No if we found a valid record ID
         if (jobRecordId) {
             zohoData.Job_No = jobRecordId;
         }
@@ -97,28 +184,38 @@ const pushToZoho = async (parsedResults, zoho, formLinkName) => {
             DRN_no: record.DRN_no,
             documentCount: record.documents.length,
             jobRecordId: jobRecordId || null,
-            jobLookupFailed: record.Job_No && !jobRecordId
+            sourceRecord: record
         });
     }
 
     // Step 3: Batch create all records (1 API call instead of N!)
     console.log(`\n📤 Creating ${recordsToCreate.length} records in batch...`);
 
-    const batchResult = await zoho.createRecordsBatch({
-        formLinkName: formLinkName,
-        data: recordsToCreate
-    });
+    const batchResult = recordsToCreate.length > 0
+        ? await zoho.createRecordsBatch({
+            formLinkName: formLinkName,
+            data: recordsToCreate
+        })
+        : {
+            success: pendingRecords.length === 0,
+            results: [],
+            duration: 0
+        };
 
     // Step 4: Map batch results back to individual record info
     const results = recordMeta.map((meta, index) => {
         const batchRecord = batchResult.results?.[index] || {};
+        if (!batchRecord.success) {
+            pendingRecords.push(normalizePendingRecord(meta.sourceRecord, 'zoho_create_failed'));
+        }
+
         return {
-            Job_No: meta.jobRecordId ? meta.originalJobNo : null,
+            Job_No: meta.originalJobNo,
             DRN_no: meta.DRN_no,
             documentCount: meta.documentCount,
             jobRecordId: meta.jobRecordId,
             originalJobNo: meta.originalJobNo,
-            jobLookupFailed: meta.jobLookupFailed,
+            jobLookupFailed: false,
             zohoResponse: {
                 success: batchRecord.success || false,
                 recordId: batchRecord.recordId,
@@ -128,26 +225,31 @@ const pushToZoho = async (parsedResults, zoho, formLinkName) => {
     });
 
     const successCount = results.filter(r => r.zohoResponse.success).length;
-    const lookupFailedCount = results.filter(r => r.jobLookupFailed).length;
+    const lookupFailedCount = pendingRecords.filter(r => r.pendingReason === 'job_lookup_failed').length;
 
     console.log(`\n${'='.repeat(60)}`);
     console.log(`📊 ZOHO PUSH SUMMARY (BATCH)`);
     console.log(`${'='.repeat(60)}`);
-    console.log(`Total records: ${results.length}`);
+    console.log(`Total parsed records considered: ${parsedResults.length}`);
+    console.log(`Attempted creates: ${results.length}`);
     console.log(`Successful: ${successCount}`);
     console.log(`Failed: ${results.length - successCount}`);
     if (lookupFailedCount > 0) {
-        console.log(`Job lookup failed (created without link): ${lookupFailedCount}`);
+        console.log(`Held for missing Zoho job record: ${lookupFailedCount}`);
     }
+    console.log(`Pending for retry/manual review: ${pendingRecords.length}`);
     console.log(`Batch API duration: ${batchResult.duration ? (batchResult.duration / 1000).toFixed(2) + 's' : 'N/A'}`);
     console.log(`${'='.repeat(60)}\n`);
 
     return {
         success: batchResult.success,
-        totalRecords: results.length,
+        totalRecords: parsedResults.length,
+        attemptedRecords: results.length,
         successCount,
         failedCount: results.length - successCount,
         lookupFailedCount,
+        pendingCount: pendingRecords.length,
+        pendingRecords,
         batchDuration: batchResult.duration,
         results
     };
@@ -197,24 +299,48 @@ const processEmails = async (req, res, next) => {
         });
 
         let zohoResult = null;
+        let pendingRecords = loadPendingRecords(configService);
+        let pendingSaveResult = null;
+        const parsedRecords = parseResult.results || [];
+        const pendingBeforeCount = pendingRecords.length;
 
-        // Push to Zoho if enabled and we have results
-        if (pushToZohoEnabled && parseResult.results && parseResult.results.length > 0) {
+        // Push to Zoho if enabled and there are new or pending records to try.
+        if (pushToZohoEnabled && (parsedRecords.length > 0 || pendingRecords.length > 0)) {
             const zoho = getZohoService();
             // Get formLinkName from Supabase config (not static config)
             const zohoFormLinkName = configService.get('ZOHO_FORM_LINK_NAME', config.zoho.formLinkName);
             console.log(`📌 Using Zoho Form: ${zohoFormLinkName}`);
-            zohoResult = await pushToZoho(parseResult.results, zoho, zohoFormLinkName);
+            const recordsToProcess = mergePendingWithCurrent(pendingRecords, parsedRecords);
+            console.log(`IRN-DRN pending queue: ${pendingRecords.length} existing + ${parsedRecords.length} current => ${recordsToProcess.length} unique record(s)`);
+
+            zohoResult = await pushToZoho(recordsToProcess, zoho, zohoFormLinkName);
+            pendingRecords = zohoResult.pendingRecords || [];
+            pendingSaveResult = await savePendingRecords(configService, pendingRecords);
         }
 
         res.json({
             success: true,
-            message: parseResult.results.length > 0
-                ? `Processed ${parseResult.results.length} email(s)`
-                : 'No matching emails found',
+            message: parsedRecords.length > 0
+                ? `Processed ${parsedRecords.length} email(s)`
+                : pendingBeforeCount > 0
+                    ? `Retried ${pendingBeforeCount} pending record(s)`
+                    : 'No matching emails found',
             data: {
                 parsed: parseResult,
-                zoho: zohoResult
+                zoho: zohoResult,
+                pending: {
+                    count: pendingRecords.length,
+                    saved: pendingSaveResult,
+                    records: pendingRecords.map(record => ({
+                        Job_No: record.Job_No,
+                        DRN_no: record.DRN_no,
+                        documentCount: record.documents?.length || 0,
+                        pendingReason: record.pendingReason,
+                        pendingSince: record.pendingSince,
+                        lastSeenAt: record.lastSeenAt,
+                        attempts: record.attempts
+                    }))
+                }
             }
         });
     } catch (error) {
