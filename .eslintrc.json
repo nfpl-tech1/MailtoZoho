@@ -1,0 +1,24 @@
+{
+  "env": {
+    "node": true,
+    "es2022": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022
+  },
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_|^next$|^req$|^res$" }],
+    "no-empty": ["error", { "allowEmptyCatch": false }],
+    "consistent-return": "warn",
+    "eqeqeq": ["error", "always"],
+    "no-var": "error",
+    "prefer-const": "warn",
+    "max-lines": ["warn", { "max": 500, "skipBlankLines": true, "skipComments": true }]
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    "public/",
+    "docs/",
+    "*.md"
+  ]
+}

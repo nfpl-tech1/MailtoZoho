@@ -6,9 +6,17 @@
 const crypto = require('crypto');
 const { getConfigService } = require('../services/common/config.service');
 
-/**
- * Generate a simple session token
- */
+function timingSafeCompare(a, b) {
+    const bufA = Buffer.from(String(a), 'utf8');
+    const bufB = Buffer.from(String(b), 'utf8');
+    if (bufA.length !== bufB.length) {
+        const hashA = crypto.createHash('sha256').update(bufA).digest();
+        const hashB = crypto.createHash('sha256').update(bufB).digest();
+        return crypto.timingSafeEqual(hashA, hashB);
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function generateToken() {
     return crypto.randomBytes(32).toString('hex');
 }
@@ -33,7 +41,7 @@ setInterval(() => {
  * Verify settings password
  * POST /api/auth/verify-settings-password
  */
-async function verifySettingsPassword(req, res) {
+async function verifySettingsPassword(req, res, next) {
     try {
         const { password } = req.body;
 
@@ -68,8 +76,7 @@ async function verifySettingsPassword(req, res) {
             });
         }
 
-        // Verify password
-        if (password === correctPassword) {
+        if (timingSafeCompare(password, correctPassword)) {
             // Generate session token
             const token = generateToken();
             const expiresAt = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
@@ -96,11 +103,7 @@ async function verifySettingsPassword(req, res) {
             });
         }
     } catch (error) {
-        console.error('Error verifying password:', error.message);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        next(error);
     }
 }
 
@@ -200,7 +203,7 @@ function getSessionStats(req, res) {
  * Change password
  * POST /api/auth/change-password
  */
-async function changePassword(req, res) {
+async function changePassword(req, res, next) {
     try {
         const { currentPassword, newPassword } = req.body;
 
@@ -240,8 +243,7 @@ async function changePassword(req, res) {
             }
         }
 
-        // Verify current password
-        if (currentPassword !== storedPassword) {
+        if (!timingSafeCompare(currentPassword, storedPassword)) {
             console.log('❌ Password change failed - incorrect current password');
             return res.status(401).json({
                 success: false,
@@ -270,11 +272,7 @@ async function changePassword(req, res) {
             });
         }
     } catch (error) {
-        console.error('Error changing password:', error.message);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        next(error);
     }
 }
 

@@ -7,8 +7,8 @@ const { GmailService } = require('../common');
 const { extractAndParseTables } = require('../../utils/irn-drn-tracker/htmlTableParser');
 
 class EmailProcessor {
-    constructor() {
-        this.gmailService = new GmailService();
+    constructor(gmailService = null) {
+        this.gmailService = gmailService || new GmailService();
         this.initialized = false;
     }
 

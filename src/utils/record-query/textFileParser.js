@@ -280,10 +280,20 @@ function validateParsedData(parsedData) {
     };
 }
 
+/**
+ * Generate a deduplication key for a parsed Record Query result
+ */
+const getRecordQueryKey = (parsedResult) => {
+    const be = parsedResult.beNumber || '';
+    const query = (parsedResult.query || '').trim().toLowerCase();
+    return `${be}|${query}`;
+};
+
 module.exports = {
     parseTextFile,
     formatQueryDate,
     parseDataLine,
     validateParsedData,
-    normalizeContent
+    normalizeContent,
+    getRecordQueryKey
 };

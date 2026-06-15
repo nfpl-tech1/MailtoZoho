@@ -19,16 +19,19 @@ const useImap = !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
 class GmailService {
-    constructor() {
+    constructor({ user, password } = {}) {
         this.auth = null;
         this.gmail = null;
         this.imapService = null;
-        this.useImap = useImap;
+
+        // When explicit credentials are provided, always use IMAP for that instance
+        const hasInjectedCreds = !!(user && password);
+        this.useImap = hasInjectedCreds || useImap;
 
         if (this.useImap) {
             // Use IMAP with App Password
             const GmailImapService = require('./gmail-imap.service');
-            this.imapService = new GmailImapService();
+            this.imapService = new GmailImapService(hasInjectedCreds ? { user, password } : {});
             console.log('📧 Gmail: Using IMAP with App Password (tokens never expire!)');
         } else {
             // Use OAuth2 (legacy)

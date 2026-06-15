@@ -8,8 +8,8 @@
  * Catches 404 errors for undefined routes
  */
 const notFound = (req, res, next) => {
-    // Silently handle favicon requests
-    if (req.originalUrl === '/favicon.ico') {
+    // Silently ignore favicon and stray Next.js HMR requests
+    if (req.originalUrl === '/favicon.ico' || req.originalUrl.startsWith('/_next/')) {
         return res.status(204).end();
     }
     

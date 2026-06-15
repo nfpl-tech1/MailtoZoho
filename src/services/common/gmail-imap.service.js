@@ -14,13 +14,12 @@ const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 
 class GmailImapService {
-    constructor() {
+    constructor({ user, password } = {}) {
         this.client = null;
         this.initialized = false;
 
-        // Load credentials from environment variables
-        this.user = process.env.GMAIL_USER;
-        this.password = process.env.GMAIL_APP_PASSWORD;
+        this.user = user || process.env.GMAIL_USER;
+        this.password = password || process.env.GMAIL_APP_PASSWORD;
         this.host = 'imap.gmail.com';
         this.port = 993;
     }

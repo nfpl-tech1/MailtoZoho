@@ -9,8 +9,8 @@ const { parseTextFile, validateParsedData } = require('../../utils/record-query'
 const { getConfigService } = require('../common/config.service');
 
 class RecordQueryEmailProcessor {
-    constructor() {
-        this.gmailService = new GmailService();
+    constructor(gmailService = null) {
+        this.gmailService = gmailService || new GmailService();
         this.initialized = false;
     }
 

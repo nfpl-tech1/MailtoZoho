@@ -12,6 +12,7 @@ const recordQueryRoutes = require('./record-query');
 const configRoutes = require('./config.routes');
 const cronRoutes = require('./cron.routes');
 const authRoutes = require('./auth.routes');
+const inboxRoutes = require('./inbox.routes');
 
 // Legacy routes (for backward compatibility)
 const emailRoutes = require('./email.routes');
@@ -35,6 +36,9 @@ router.use('/auth', authRoutes);
 
 // Cron endpoints (for cron-job.org)
 router.use('/cron', cronRoutes);
+
+// Inbox management
+router.use('/inboxes', inboxRoutes);
 
 // =============================================================================
 // LEGACY ROUTES (For backward compatibility - redirects to IRN-DRN Tracker)

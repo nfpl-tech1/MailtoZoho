@@ -178,6 +178,35 @@ class SupabaseService {
     }
 
     /**
+     * Get all rows from any table, with optional PostgREST query string
+     */
+    async getFromTable(tableName, queryString = '') {
+        const endpoint = queryString ? `${tableName}?${queryString}` : `${tableName}?select=*`;
+        return this.request('GET', endpoint);
+    }
+
+    /**
+     * Insert a row into any table
+     */
+    async insertToTable(tableName, row) {
+        return this.request('POST', tableName, row);
+    }
+
+    /**
+     * Update rows in any table matching a PostgREST filter string
+     */
+    async updateInTable(tableName, filter, data) {
+        return this.request('PATCH', `${tableName}?${filter}`, data);
+    }
+
+    /**
+     * Delete rows from any table matching a PostgREST filter string
+     */
+    async deleteFromTable(tableName, filter) {
+        return this.request('DELETE', `${tableName}?${filter}`);
+    }
+
+    /**
      * Test connection to Supabase
      */
     async testConnection() {
