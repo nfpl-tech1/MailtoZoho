@@ -1,0 +1,1 @@
+- [eSanchit audit baseline](project-esanchit-audit.md) — Initial /constitute audit 2026-06-15: layer inventory, severity map, 18+ findings catalogued

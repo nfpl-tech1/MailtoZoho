@@ -1,0 +1,1 @@
+- [FEAT-1 decision](feat-1-multi-inbox-decision.md) — ADR-1: Multi-inbox support approach decided Jun 2026; credential injection via constructor params, separate InboxService, per-run processor instantiation, in-controller dedup

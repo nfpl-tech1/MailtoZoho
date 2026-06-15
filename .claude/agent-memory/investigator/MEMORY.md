@@ -1,0 +1,1 @@
+- [FEAT-1 investigation complete](feat1-multi-inbox-investigation.md) — Investigated FEAT-1 multi-inbox/dedup/pending-buffer; all key facts documented including EMAIL-2 and CC-1 audit evidence
